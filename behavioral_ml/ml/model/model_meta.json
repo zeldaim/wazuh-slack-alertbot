@@ -1,0 +1,83 @@
+{
+  "trained_at": "2026-11-09T02:40:49+00:00",
+  "algorithm": "sklearn IsolationForest(n_estimators=300, random_state=42)",
+  "contamination": 0.01,
+  "source": "팀 웹(192.168.0.141) shop_access.log 2026-10-26~11-09 106만 줄, 15분 창 — 읽기 전용 공유",
+  "n_windows": 199,
+  "n_windows_total": 325,
+  "filter": "err_ratio < 0.3 and n_req < 1500 (스캐너 제외) and offspec_ratio == 0 (Shadow API 규칙에 걸리는 창 제외)",
+  "excluded": {
+    "scanner": 94,
+    "rule_hit": 32
+  },
+  "features": [
+    "n_req",
+    "uniq_path_ratio",
+    "top_tpl_share",
+    "seq_id_run",
+    "seq_ratio",
+    "id_span_log",
+    "gap_mean_log",
+    "gap_cv",
+    "err_ratio",
+    "api_ratio",
+    "static_ratio",
+    "n_ua",
+    "offspec_ratio"
+  ],
+  "threshold_high": -0.00202,
+  "threshold_medium": 0.00712,
+  "median": [
+    45.0,
+    0.3108,
+    0.2632,
+    1.0,
+    0.0244,
+    1.3863,
+    2.0274,
+    2.2024,
+    0.0,
+    0.5588,
+    0.0513,
+    1.0,
+    0.0
+  ],
+  "scale": [
+    60.7858,
+    0.1955,
+    0.0706,
+    1.4826,
+    0.0275,
+    1.7069,
+    1.0235,
+    0.5639,
+    0.0137,
+    0.1678,
+    0.0781,
+    0.0935,
+    1.0
+  ],
+  "train_p99": [
+    186.56,
+    1.0,
+    1.0,
+    5.04,
+    0.1434,
+    2.8343,
+    3.9795,
+    5.9467,
+    0.2857,
+    1.0,
+    0.5714,
+    3.02,
+    0.0
+  ],
+  "score_percentiles": {
+    "0.5": -0.00202,
+    "1": -0.0,
+    "2": 0.00712,
+    "5": 0.04019,
+    "25": 0.09124,
+    "50": 0.14397
+  }
+}

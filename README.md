@@ -141,3 +141,17 @@ pip install requests python-dotenv
 ```
 
 > "룰 기반 탐지의 한계를 엔트로피로 보완한다"
+
+---
+
+## 한계와 보강 — 엔트로피 + 행위 ML ([behavioral_ml/](behavioral_ml/README.md))
+
+엔트로피는 **전역 스트림**의 다양성을 본다 → 브루트포스처럼 뒤덮는 공격엔 강하지만 **느리고 조용한 공격은 정상에 묻혀 못 본다**(윈도우를 키워도 안 됨 — 집계 단위 문제, `behavioral_ml/window_sweep.py`). 이를 **IP별 행위 ML(IsolationForest)** 로 보강하고 같은 트래픽에서 비교했다.
+
+| 시나리오 | 엔트로피(전역) | 행위 ML(IP별) |
+|---|---|---|
+| 대량 브루트포스 | ✅ (41σ 급락) | ✅ |
+| 느린 BOLA | ⛔ | ✅ (−0.12) |
+| 블렌딩 · IP 분산 | ⛔ | ⛔ (다음 과제) |
+
+→ **사각지대가 반대라 OR 로 합치면 넓게 덮인다.** ML 은 실 서비스 로그 106만 줄 학습 + 공격 7종 변종·오탐 0.55% 로 검증(출처: [zeldaim/shadow_api_monitoring](https://github.com/zeldaim/shadow_api_monitoring) e2e_story). 상세·실행·그림: [`behavioral_ml/`](behavioral_ml/). 기술 근거 문헌: shadow_api_monitoring `docs/참고문헌_기술근거.md`.

@@ -128,8 +128,53 @@ Kali Linux에서 Hydra를 이용한 SSH 브루트포스 공격을 수행하고 W
 
 ---
 
+## 6. 확장 — 엔트로피 + 행위 ML 로 사각지대 보강 (2026-11-09)
+
+5장에서 향후 과제로 제시한 **다양한 공격 유형 실험**과 **머신러닝 결합**을 실제로 수행하였다. 구현·데이터는 `behavioral_ml/`.
+
+### 6.1 엔트로피 단독의 사각지대
+
+본문의 엔트로피는 **전역 경보/트래픽 스트림**의 다양성을 본다. SSH 브루트포스처럼 한 소스가 스트림을 뒤덮어 다양성이 급락하는 공격에는 강하지만, **느리고 조용한 공격**(예: 명세 안 API 의 객체 번호를 수십 초 간격으로 열거하는 BOLA)은 정상 트래픽에 묻혀 전역 엔트로피를 거의 움직이지 못한다.
+
+윈도우 크기를 키우면 해결되는지 실험하였다(경로 Shannon, `window_sweep.py`):
+
+| 윈도우 | 정상(오탐) | 브루트포스 | 느린 BOLA |
+|---|---|---|---|
+| 100 | 4.1σ | 39.5σ | **2.0σ(미탐)** |
+| 300 | 3.9σ | 35.3σ | **2.0σ(미탐)** |
+| 600 | 3.9σ | 25.4σ | **2.0σ(미탐)** |
+
+윈도우를 키우면 정상 오탐 노이즈는 다소 줄지만 느린 공격은 여전히 2σ(임계 미달)로 탐지되지 않으며, 오히려 브루트포스 신호가 약해진다. 조용한 소수 공격자는 전역 집계에서 창을 키울수록 비중이 작아지기 때문이다. **즉 윈도우 크기가 아니라 '집계 단위'의 문제다.**
+
+### 6.2 행위 ML (소스별 이상 탐지)
+
+전역이 아니라 **소스(IP)별** 로 행동을 모델링하면 조용한 공격자도 분리된다. 접근 로그를 IP×15분 창으로 묶어 13개 행위 특징(요청 수·경로 다양성·연속 ID 열거·요청 간격 규칙성·명세 밖 비율 등)을 뽑고 **IsolationForest**(비지도 이상 탐지)로 학습하였다. 모델은 실 서비스 접근 로그 106만 줄에서 뽑은 199개 정상 창으로 학습하고, 공격 7종 변종으로 탐지율을, 학습에 쓰지 않은 날의 로그로 오탐률을 측정하였다(상세: 외부 프로젝트 e2e_story/eval).
+
+### 6.3 머리맞댄 비교 (같은 트래픽)
+
+| 시나리오 | 엔트로피(전역) | 행위 ML(IP별) |
+|---|---|---|
+| 정상 | 조용 | 조용 |
+| 대량 브루트포스 | **탐지**(경로 다양성 41σ 급락) | 탐지 |
+| 느린 BOLA | 미탐(2σ) | **탐지**(−0.12) |
+| 브라우저 블렌딩 | 미탐 | 미탐 |
+| IP 분산 | 미탐 | 미탐(창당 요청 부족) |
+
+두 방법의 **사각지대가 상호 보완적**이다: 대량·반복 공격은 엔트로피가, 느리고 은밀한 공격은 ML 이 탐지한다. 둘을 OR 로 결합하면 단독 대비 탐지 범위가 넓어진다. 블렌딩·IP 분산은 두 방법 모두 한계이며, 계정·세션 단위 특징이 다음 과제다.
+
+### 6.4 결론 보강
+
+엔트로피는 "룰 기반의 보완"을 넘어, **행위 ML 과 결합할 때** 서로의 구조적 사각지대(전역 vs 소스별)를 메우는 복합 탐지의 한 축으로 자리한다. 실시간 알림(Slack) 파이프라인에 두 탐지기를 병렬로 두고 OR 로 경보하는 것이 실무적 권고다.
+
+---
+
 ## 참고문헌
 
-- Shannon, C. E. (1948). A Mathematical Theory of Communication. Bell System Technical Journal.
-- Pincus, S. M. (1991). Approximate entropy as a measure of system complexity. Proceedings of the National Academy of Sciences.
+- Shannon, C. E. (1948). A Mathematical Theory of Communication. *Bell System Technical Journal*, 27(3).
+- Pincus, S. M. (1991). Approximate entropy as a measure of system complexity. *PNAS*, 88(6).
+- Liu, F. T., Ting, K. M., & Zhou, Z.-H. (2008). Isolation Forest. *IEEE ICDM 2008*, 413–422. https://doi.org/10.1109/ICDM.2008.17
+- Chandola, V., Banerjee, A., & Kumar, V. (2009). Anomaly Detection: A Survey. *ACM Computing Surveys*, 41(3). https://doi.org/10.1145/1541880.1541882
+- Jacobs, J., Romanosky, S., Edwards, B., Roytman, M., & Adjerid, I. (2021). Exploit Prediction Scoring System (EPSS). *ACM DTRAP*. https://doi.org/10.1145/3436242
+- OWASP. API Security Top 10 (2023) — API9 Improper Inventory Management(Shadow/Zombie API), API1 BOLA. https://api-security.owasp.org/editions/2023/en/0x11-t10/
 - Wazuh Documentation. https://documentation.wazuh.com
+- (전체 근거 목록) zeldaim/shadow_api_monitoring, `docs/참고문헌_기술근거.md`

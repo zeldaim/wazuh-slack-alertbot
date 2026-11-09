@@ -1,0 +1,605 @@
+openapi: 3.0.3
+info:
+  title: Shop API
+  version: "2.0"
+  description: |
+    쇼핑몰 Shadow API 프로젝트의 정상 API(v2) 명세.
+    회원 데이터는 모두 가상 데이터이며, 예시 계정의 비밀번호는 시드 데이터용 테스트 값이다.
+
+    **인증이 필요한 API 사용법**: `/api/v2/login`으로 받은 `access_token` 값을
+    오른쪽 위 **Authorize** 버튼에 붙여넣는다. (따옴표 없이 토큰만 입력)
+servers:
+  - url: /
+tags:
+  - name: users
+    description: 회원가입, 로그인, 내 정보
+  - name: products
+    description: 상품 목록, 상품 상세
+  - name: orders
+    description: 주문 생성, 내 주문 조회, 주문 상세, 주문 취소 (로그인 필요)
+  - name: cart
+    description: 장바구니 보기, 담기, 수량 바꾸기, 빼기, 비우기 (로그인 필요)
+paths:
+  /api/v2/signup:
+    post:
+      tags: [users]
+      summary: 회원가입
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SignupIn'
+      responses:
+        '201':
+          description: 가입 성공
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id: { type: integer, example: 10001 }
+                  email: { type: string, example: newuser@example.com }
+        '409':
+          description: 이미 가입된 이메일
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { detail: 이미 가입된 이메일입니다 }
+        '422':
+          description: 입력값 검증 실패
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+  /api/v2/login:
+    post:
+      tags: [users]
+      summary: 로그인 (JWT 발급)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginIn'
+      responses:
+        '200':
+          description: 로그인 성공 (토큰 유효시간 60분)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  access_token: { type: string }
+                  token_type: { type: string, example: bearer }
+        '401':
+          description: 이메일 또는 비밀번호 불일치 (둘 중 무엇이 틀렸는지는 알려주지 않음)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { detail: 이메일 또는 비밀번호가 올바르지 않습니다 }
+        '422':
+          description: 입력값 검증 실패
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+  /api/v2/users/me:
+    get:
+      tags: [users]
+      summary: 내 정보 조회 (인증 필요)
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: 현재 로그인한 회원 정보 (비밀번호 해시는 포함되지 않음)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UserPublic' }
+        '401':
+          description: 토큰 없음 / 유효하지 않은 토큰 / 존재하지 않는 사용자
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { detail: 인증이 필요합니다 }
+    patch:
+      tags: [users]
+      summary: 내 정보 수정 (인증 필요)
+      description: |
+        이름·전화번호·주소만 바꿀 수 있다. 보낸 항목만 바뀐다.
+        email, password 등 다른 항목이 섞여 있으면 400 으로 거절한다.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UserUpdateIn' }
+      responses:
+        '200':
+          description: 바뀐 뒤의 회원 정보
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UserPublic' }
+        '400':
+          description: 바꿀 수 없는 항목이 포함됨
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { detail: '이름, 전화번호, 주소만 변경할 수 있습니다' }
+        '401':
+          description: 토큰 없음 / 유효하지 않은 토큰
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '422':
+          description: 입력값 검증 실패 (전화번호 형식·앞자리, 길이 등)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+  /api/v2/products/search:
+    get:
+      tags: [products]
+      summary: 상품 검색
+      description: 상품 이름·설명에서 검색어를 찾는다. 분류·가격 범위·정렬을 함께 쓸 수 있다.
+      parameters:
+        - { name: q, in: query, description: 검색어 (50자 이하), schema: { type: string, maxLength: 50 } }
+        - { name: category, in: query, schema: { type: string, maxLength: 50 } }
+        - { name: min_price, in: query, schema: { type: integer, minimum: 0 } }
+        - { name: max_price, in: query, schema: { type: integer, minimum: 0 } }
+        - name: sort
+          in: query
+          schema: { type: string, enum: [default, newest, price_asc, price_desc, name], default: default }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 20 } }
+        - { name: offset, in: query, schema: { type: integer, minimum: 0, default: 0 } }
+      responses:
+        '200':
+          description: 상품 배열 (없으면 빈 배열)
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/ProductSummary' }
+        '422':
+          description: 파라미터 검증 실패 (허용되지 않은 sort, min_price > max_price 등)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+  /api/v2/products:
+    get:
+      tags: [products]
+      summary: 상품 목록
+      description: 한 번에 최대 100개까지 조회할 수 있다. 목록에는 상품 설명이 포함되지 않는다.
+      parameters:
+        - name: limit
+          in: query
+          description: 가져올 개수 (1~100)
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+        - name: offset
+          in: query
+          description: 건너뛸 개수
+          schema: { type: integer, minimum: 0, default: 0 }
+        - name: category
+          in: query
+          description: 카테고리 이름으로 거르기 (50자 이하)
+          schema: { type: string, maxLength: 50 }
+      responses:
+        '200':
+          description: 상품 배열 (id 순서, 결과가 없으면 빈 배열)
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/ProductSummary' }
+        '422':
+          description: 파라미터 검증 실패 (limit 범위 초과 등)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { detail: limit은 1~100 사이 숫자여야 합니다 }
+  /api/v2/products/{id}:
+    get:
+      tags: [products]
+      summary: 상품 상세
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer, example: 1 }
+      responses:
+        '200':
+          description: 상품 1건 (설명 포함)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProductDetail' }
+        '404':
+          description: 없는 상품
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { detail: 상품을 찾을 수 없습니다 }
+        '422':
+          description: id가 숫자가 아님
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { detail: id는 숫자여야 합니다 }
+  /api/v2/orders:
+    post:
+      tags: [orders]
+      summary: 주문 생성 (인증 필요)
+      description: |
+        주문자는 토큰에서 정해지고, 가격은 서버가 DB 값으로 계산한다.
+        요청에 user_id나 price를 넣어도 무시된다.
+        재고 차감과 주문 저장은 한 번에 처리되어, 하나라도 실패하면 전부 취소된다.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OrderCreateIn'
+      responses:
+        '201':
+          description: 주문 성공
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OrderCreated' }
+        '401':
+          description: 토큰 없음 / 유효하지 않은 토큰
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '404':
+          description: 존재하지 않는 상품이 포함됨
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { detail: 존재하지 않는 상품이 포함되어 있습니다 }
+        '409':
+          description: 재고 부족
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { detail: 재고가 부족합니다 }
+        '422':
+          description: 입력값 검증 실패 (상품 종류 10개 초과, 수량 범위, 중복 상품 등)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+  /api/v2/orders/me:
+    get:
+      tags: [orders]
+      summary: 내 주문 조회 (인증 필요)
+      description: 로그인한 사용자 본인의 주문만 최신순으로 보여준다.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: limit
+          in: query
+          description: 가져올 개수 (1~100)
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+        - name: offset
+          in: query
+          description: 건너뛸 개수
+          schema: { type: integer, minimum: 0, default: 0 }
+        - name: status
+          in: query
+          description: 이 상태의 주문만 (없으면 전체)
+          schema: { type: string, enum: [결제완료, 배송중, 배송완료, 취소] }
+      responses:
+        '200':
+          description: 주문 배열 (주문이 없으면 빈 배열)
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/OrderOut' }
+        '401':
+          description: 토큰 없음 / 유효하지 않은 토큰
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '422':
+          description: 파라미터 검증 실패
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+  /api/v2/orders/{id}:
+    get:
+      tags: [orders]
+      summary: 주문 상세 (인증 필요)
+      description: 내 주문만 볼 수 있다. 남의 주문 번호는 없는 주문과 똑같이 404.
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        '200':
+          description: 주문 1건
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OrderOut' }
+        '401':
+          description: 토큰 없음 / 유효하지 않은 토큰
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '404':
+          description: 주문을 찾을 수 없음 (없는 주문 또는 남의 주문)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+  /api/v2/orders/{id}/cancel:
+    post:
+      tags: [orders]
+      summary: 주문 취소 (인증 필요)
+      description: 결제완료 상태인 내 주문만 취소한다. 취소하면 재고가 돌아간다.
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        '200':
+          description: 취소 완료
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  order_id: { type: integer, example: 6012 }
+                  status: { type: string, example: 취소 }
+        '401':
+          description: 토큰 없음 / 유효하지 않은 토큰
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '404':
+          description: 주문을 찾을 수 없음
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '409':
+          description: 결제완료 상태가 아니라 취소할 수 없음
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+  /api/v2/cart:
+    get:
+      tags: [cart]
+      summary: 내 장바구니 (인증 필요)
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: 장바구니 (가격은 현재 상품 가격)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CartOut' }
+        '401':
+          description: 토큰 없음 / 유효하지 않은 토큰
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+    post:
+      tags: [cart]
+      summary: 장바구니 담기 (인증 필요)
+      description: 이미 담긴 상품이면 수량을 더한다 (최대 99). 장바구니는 최대 30종류.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CartAddIn' }
+      responses:
+        '201':
+          description: 담은 뒤의 장바구니
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CartOut' }
+        '404':
+          description: 없는 상품
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '409':
+          description: 장바구니 종류 수 초과
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '422':
+          description: 입력값 검증 실패
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+    delete:
+      tags: [cart]
+      summary: 장바구니 비우기 (인증 필요)
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: 지운 개수
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  deleted: { type: integer, example: 3 }
+  /api/v2/cart/{product_id}:
+    patch:
+      tags: [cart]
+      summary: 장바구니 수량 바꾸기 (인증 필요)
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: product_id, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [quantity]
+              properties:
+                quantity: { type: integer, minimum: 1, maximum: 99, example: 3 }
+      responses:
+        '200':
+          description: 바꾼 뒤의 장바구니
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CartOut' }
+        '400':
+          description: quantity 외의 항목이 포함됨
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '404':
+          description: 장바구니에 없는 상품
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '422':
+          description: 수량 범위 오류
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+    delete:
+      tags: [cart]
+      summary: 장바구니에서 빼기 (인증 필요)
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: product_id, in: path, required: true, schema: { type: integer } }
+      responses:
+        '200':
+          description: 뺀 뒤의 장바구니
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CartOut' }
+        '404':
+          description: 장바구니에 없는 상품
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    SignupIn:
+      type: object
+      required: [name, email, password]
+      properties:
+        name: { type: string, maxLength: 50, example: 홍길동 }
+        email: { type: string, format: email, maxLength: 100, example: newuser@example.com }
+        password: { type: string, minLength: 4, maxLength: 72, description: bcrypt 제한으로 72바이트 이하, example: Test1234! }
+        phone: { type: string, maxLength: 20, nullable: true, example: 010-1234-5678 }
+        address: { type: string, maxLength: 255, nullable: true, example: 서울시 어딘가 1-2 }
+    LoginIn:
+      type: object
+      required: [email, password]
+      properties:
+        email: { type: string, example: user1@example.com }
+        password: { type: string, maxLength: 72, example: Test1234! }
+    UserPublic:
+      type: object
+      properties:
+        id: { type: integer, example: 1 }
+        name: { type: string }
+        email: { type: string, example: user1@example.com }
+        phone: { type: string, nullable: true }
+        address: { type: string, nullable: true }
+    ProductSummary:
+      type: object
+      properties:
+        id: { type: integer, example: 1 }
+        name: { type: string }
+        price: { type: integer, description: 원, example: 25000 }
+        stock: { type: integer, example: 120 }
+        category: { type: string, nullable: true }
+    ProductDetail:
+      type: object
+      properties:
+        id: { type: integer, example: 1 }
+        name: { type: string }
+        price: { type: integer, description: 원, example: 25000 }
+        stock: { type: integer, example: 120 }
+        description: { type: string, nullable: true }
+        category: { type: string, nullable: true }
+        created_at: { type: string, example: "2026-01-01 12:00:00" }
+    OrderItemIn:
+      type: object
+      required: [product_id, quantity]
+      properties:
+        product_id: { type: integer, minimum: 1, example: 1 }
+        quantity: { type: integer, minimum: 1, maximum: 99, example: 2 }
+    OrderCreateIn:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          minItems: 1
+          maxItems: 10
+          items: { $ref: '#/components/schemas/OrderItemIn' }
+    OrderCreated:
+      type: object
+      properties:
+        order_id: { type: integer, example: 5985 }
+        total_price: { type: integer, description: 원, example: 50000 }
+    OrderItemOut:
+      type: object
+      properties:
+        product_id: { type: integer, example: 1 }
+        name: { type: string }
+        category: { type: string, nullable: true, example: 전자기기 }
+        quantity: { type: integer, example: 2 }
+        price: { type: integer, description: 주문 당시 가격(원), example: 25000 }
+    OrderOut:
+      type: object
+      properties:
+        id: { type: integer, example: 5985 }
+        order_date: { type: string, example: "2026-10-23 14:30:00" }
+        total_price: { type: integer, example: 50000 }
+        status: { type: string, enum: [결제완료, 배송중, 배송완료, 취소] }
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/OrderItemOut' }
+    UserUpdateIn:
+      type: object
+      description: 보낸 항목만 바뀐다. 최소 1개.
+      properties:
+        name: { type: string, maxLength: 50, example: 홍길동 }
+        phone: { type: string, description: '앞자리(목록 24개)-3~4자리-4자리', example: 010-1234-5678 }
+        address: { type: string, maxLength: 255, nullable: true, description: 빈 값이면 주소를 지운다 }
+    CartAddIn:
+      type: object
+      required: [product_id]
+      properties:
+        product_id: { type: integer, minimum: 1, example: 25 }
+        quantity: { type: integer, minimum: 1, maximum: 99, default: 1, example: 2 }
+    CartItem:
+      type: object
+      properties:
+        product_id: { type: integer, example: 25 }
+        name: { type: string, example: 키보드 }
+        price: { type: integer, description: 현재 가격(원), example: 44600 }
+        stock: { type: integer, example: 183 }
+        category: { type: string, nullable: true }
+        quantity: { type: integer, example: 2 }
+        added_at: { type: string, example: "2026-10-29 14:00:00" }
+        subtotal: { type: integer, example: 89200 }
+    CartOut:
+      type: object
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/CartItem' }
+        total_price: { type: integer, example: 89200 }
+    Error:
+      type: object
+      properties:
+        detail: { type: string }
