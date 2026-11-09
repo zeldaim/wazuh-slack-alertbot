@@ -33,11 +33,11 @@ Kali Linux (공격 VM) — 192.168.190.128
 
 ### Phase 3 — 중복 알림 제거
 - 중복 판단 키: `(rule_id, agent_name)`
-- 60초 슬라이딩 윈도우 내 재발생 시 카운트만 증가
+- 첫 발생 시점부터 60초 고정 윈도우 내 재발생 시 카운트만 증가
 - 윈도우 만료 시 "N회 발생" 요약 알림 1건 전송
 - 상태 저장: 메모리 기반 dict
 
-**결과:** 32건 → 3건으로 압축
+**결과:** 실험 중 32건 → 3건으로 압축되는 것을 관찰 (원자료는 보존하지 않음)
 
 ### Phase 4 — 엔트로피 계산
 - 슬라이딩 윈도우 크기: 최근 100개 alert 기준
@@ -133,14 +133,18 @@ pip install requests python-dotenv
 
 ## 논문 활용 방향
 
-정상 구간과 공격 구간의 엔트로피 값을 비교해 공격 탐지 가능성을 증명한다.
+> **2026-11-10 정정** — 논문은 [`ZenSOC_논문_초안_v2.md`](ZenSOC_논문_초안_v2.md) (v1 은 기록으로 유지).
+
+실제 데이터(`entropy_log.jsonl`)에서는 예상과 **반대 방향**이었다:
 
 ```
-정상 트래픽  →  Shannon 높음 + ApEn 높음
-공격 진행 중 →  Shannon 낮음 + ApEn 낮음
+정상 구간(293건, 룰 3개 순환)  →  level·srcip 엔트로피 0, ApEn 0 (상수)
+공격 구간(Hydra 1회)          →  평균 level 0.93 · srcip 0.98 · ApEn 0.47 (상승)
 ```
 
-> "룰 기반 탐지의 한계를 엔트로피로 보완한다"
+- 방향은 무엇을 집계하느냐에 달려 있다: 정상 경보가 소수 룰의 반복이면, 공격이 새 룰·레벨·IP 를 끌어와 엔트로피가 **오른다**.
+- 정상 구간이 상수라 어떤 지표든 두 구간이 갈리는 것은 당연하다 → **탐지 성능의 증거가 아니라 단일 사례의 관찰**.
+- srcip 1.0 은 IP 없는 경보("Unknown")와 공격 IP 가 반반 섞인 값일 가능성이 높다(미확인).
 
 ---
 
@@ -154,4 +158,4 @@ pip install requests python-dotenv
 | 느린 BOLA | ⛔ | ✅ (−0.12) |
 | 블렌딩 · IP 분산 | ⛔ | ⛔ (다음 과제) |
 
-→ **사각지대가 반대라 OR 로 합치면 넓게 덮인다.** ML 은 실 서비스 로그 106만 줄 학습 + 공격 7종 변종·오탐 0.55% 로 검증(출처: [zeldaim/shadow_api_monitoring](https://github.com/zeldaim/shadow_api_monitoring) e2e_story). 상세·실행·그림: [`behavioral_ml/`](behavioral_ml/). 기술 근거 문헌: shadow_api_monitoring `docs/참고문헌_기술근거.md`.
+→ 사각지대가 반대 방향이라는 **예비 관찰**이다 (합성 HTTP 트래픽, 시나리오당 1회 실행, ML 의 정상 시나리오는 측정 안 함, OR 결합은 미측정). ML 은 실 서비스 로그 106만 줄로 학습했고, 오탐은 ~~0.55%~~(평가 데이터가 학습과 겹쳐 무효) → 시간 분할 재측정 65창 중 0건(95% 상한 약 5%)(출처: [zeldaim/shadow_api_monitoring](https://github.com/zeldaim/shadow_api_monitoring) e2e_story). 상세·실행·그림: [`behavioral_ml/`](behavioral_ml/). 기술 근거 문헌: shadow_api_monitoring `docs/참고문헌_기술근거.md`.
